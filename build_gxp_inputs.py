@@ -2329,9 +2329,66 @@ def validate_all_outputs(output_dir: Path, config: dict) -> bool:
                 if 'schema_version' not in signals_section:
                     errors.append("signals_manifest.toml: Missing schema_version")
             
-            # Validate epoch sections and hashes
+            # Strict validation: Check all epochs in manifest have all required files
+            expected_epochs = []
+            missing_artefacts = []
+            
             for epoch_key, epoch_data in manifest_data.items():
-                if epoch_key.startswith('epoch.'):
+                if epoch_key.startswith('epoch.') and not epoch_key.endswith('.sha256'):
+                    year = int(epoch_key.split('.')[1])
+                    expected_epochs.append(year)
+                    
+                    # Required files per epoch
+                    required_files = {
+                        'gxp_hourly_csv': output_dir / f'gxp_hourly_{year}.csv',
+                        'gxp_hourly_report_json': output_dir / f'gxp_hourly_{year}_report.json',
+                        'grid_emissions_csv': output_dir / f'grid_emissions_intensity_{year}.csv',
+                        'grid_emissions_report_json': output_dir / f'grid_emissions_intensity_{year}_report.json',
+                    }
+                    
+                    for file_key, file_path in required_files.items():
+                        if not file_path.exists():
+                            missing_artefacts.append((year, file_path.name, file_key))
+            
+            # Check for required non-epoch files
+            required_global_files = {
+                'gxp_upgrade_menu.csv': output_dir / 'gxp_upgrade_menu.csv',
+                'gxp_upgrade_menu_report.json': output_dir / 'gxp_upgrade_menu_report.json',
+                'epochs_registry.csv': output_dir / 'epochs_registry.csv',
+            }
+            
+            for file_name, file_path in required_global_files.items():
+                if not file_path.exists():
+                    missing_artefacts.append((None, file_name, 'global'))
+            
+            # Report missing artefacts grouped by epoch
+            if missing_artefacts:
+                errors.append("signals_manifest.toml: Missing required artefacts:")
+                missing_by_epoch = {}
+                global_missing = []
+                
+                for epoch, file_name, file_key in missing_artefacts:
+                    if epoch is None:
+                        global_missing.append(file_name)
+                    else:
+                        if epoch not in missing_by_epoch:
+                            missing_by_epoch[epoch] = []
+                        missing_by_epoch[epoch].append(file_name)
+                
+                if global_missing:
+                    errors.append("  Global files:")
+                    for file_name in global_missing:
+                        errors.append(f"    [MISSING] {file_name}")
+                
+                if missing_by_epoch:
+                    for epoch in sorted(missing_by_epoch.keys()):
+                        errors.append(f"  Epoch {epoch}:")
+                        for file_name in sorted(missing_by_epoch[epoch]):
+                            errors.append(f"    [MISSING] {file_name}")
+            
+            # Validate epoch sections and hashes (only if files exist)
+            for epoch_key, epoch_data in manifest_data.items():
+                if epoch_key.startswith('epoch.') and not epoch_key.endswith('.sha256'):
                     year = int(epoch_key.split('.')[1])
                     gxp_file = output_dir / f'gxp_hourly_{year}.csv'
                     if gxp_file.exists():
@@ -2340,6 +2397,14 @@ def validate_all_outputs(output_dir: Path, config: dict) -> bool:
                             expected_hash = epoch_data['sha256']['gxp_hourly']
                             if actual_hash != expected_hash:
                                 errors.append(f"signals_manifest.toml: Hash mismatch for gxp_hourly_{year}.csv. Expected: {expected_hash}, got: {actual_hash}")
+                    
+                    emissions_file = output_dir / f'grid_emissions_intensity_{year}.csv'
+                    if emissions_file.exists():
+                        actual_hash = sha256_file(emissions_file).lower()
+                        if 'sha256' in epoch_data and 'grid_emissions' in epoch_data['sha256']:
+                            expected_hash = epoch_data['sha256']['grid_emissions']
+                            if actual_hash != expected_hash:
+                                errors.append(f"signals_manifest.toml: Hash mismatch for grid_emissions_intensity_{year}.csv. Expected: {expected_hash}, got: {actual_hash}")
         except Exception as e:
             errors.append(f"signals_manifest.toml: Failed to load/validate: {e}")
     else:

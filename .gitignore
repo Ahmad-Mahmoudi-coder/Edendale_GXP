@@ -1,4 +1,6 @@
 ﻿outputs_latest/
+outputs_latest/_archive/
+_archive/
 test_output/
 __pycache__/
 *.pyc

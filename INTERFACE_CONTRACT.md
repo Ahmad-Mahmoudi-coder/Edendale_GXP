@@ -189,11 +189,12 @@ The project runs from any location. All paths are resolved relative to the repos
 From any directory:
 ```powershell
 # From repo root
-python .\build_gxp_inputs.py --config .\config.toml --mode synthetic --output-dir .\outputs_latest --clean-output archive --epochs 2020,2025,2028,2035 --seed 42 --write-manifest --stop-on-error
+# Note: Epoch list must be quoted in PowerShell to prevent comma parsing issues
+python .\build_gxp_inputs.py --config .\config.toml --mode synthetic --output-dir .\outputs_latest --clean-output archive --epochs "2020,2025,2028,2035" --seed 42 --write-manifest --stop-on-error
 
 # Or from any other directory (paths are resolved relative to repo root)
 cd C:\SomeOtherDir
-python "C:\Model\Edendale GXP\build_gxp_inputs.py" --config "C:\Model\Edendale GXP\config.toml" --mode synthetic --output-dir "C:\Model\Edendale GXP\outputs_latest" --epochs 2020,2025,2028,2035 --seed 42 --write-manifest
+python "C:\Model\Edendale GXP\build_gxp_inputs.py" --config "C:\Model\Edendale GXP\config.toml" --mode synthetic --output-dir "C:\Model\Edendale GXP\outputs_latest" --epochs "2020,2025,2028,2035" --seed 42 --write-manifest
 ```
 
 ### Validate Outputs
@@ -248,10 +249,10 @@ The script prints a summary message showing:
 
 ```powershell
 # First run - generates outputs
-python .\build_gxp_inputs.py --config .\config.toml --mode synthetic --output-dir .\outputs_latest --epochs 2020,2025,2028,2035
+python .\build_gxp_inputs.py --config .\config.toml --mode synthetic --output-dir .\outputs_latest --epochs "2020,2025,2028,2035"
 
 # Second run - archives previous outputs, then generates new ones
-python .\build_gxp_inputs.py --config .\config.toml --mode synthetic --output-dir .\outputs_latest --clean-output archive --epochs 2020,2025,2028,2035
+python .\build_gxp_inputs.py --config .\config.toml --mode synthetic --output-dir .\outputs_latest --clean-output archive --epochs "2020,2025,2028,2035"
 
 # Result: Previous outputs are in outputs_latest/_archive/20240101_120000/ (example timestamp)
 #         New outputs are in outputs_latest/
@@ -271,44 +272,15 @@ This validates:
 - Hash integrity (manifest and report JSONs)
 - File presence and completeness
 
-## Hash Integrity Verification (PowerShell)
+## Hash Integrity Verification
 
-To verify that CSV file hashes match the embedded hashes in report JSONs:
+To verify that CSV file hashes match the embedded hashes in report JSONs, use the provided PowerShell script:
 
 ```powershell
-# Verify hash integrity for all epochs
-$epochs = @(2020, 2025, 2028, 2035)
-$outputDir = "outputs_latest"
-
-foreach ($year in $epochs) {
-    $csvFile = Join-Path $outputDir "gxp_hourly_$year.csv"
-    $reportFile = Join-Path $outputDir "gxp_hourly_$year`_report.json"
-    
-    if (Test-Path $csvFile -And Test-Path $reportFile) {
-        # Compute CSV hash
-        $csvHash = (Get-FileHash -Path $csvFile -Algorithm SHA256).Hash.ToLower()
-        
-        # Read report JSON
-        $report = Get-Content $reportFile | ConvertFrom-Json
-        
-        # Get expected hash from nested files structure (preferred) or top-level alias
-        $expectedHash = $null
-        if ($report.files -And $report.files.gxp_hourly_csv -And $report.files.gxp_hourly_csv.sha256) {
-            $expectedHash = $report.files.gxp_hourly_csv.sha256.ToLower()
-        } elseif ($report.file_hash_sha256) {
-            $expectedHash = $report.file_hash_sha256.ToLower()
-        }
-        
-        # Compare
-        $match = ($csvHash -eq $expectedHash)
-        Write-Host "$year : $match (CSV: $($csvHash.Substring(0,16))..., Report: $($expectedHash.Substring(0,16))...)"
-        
-        if (-not $match) {
-            Write-Host "  ERROR: Hash mismatch for $year" -ForegroundColor Red
-        }
-    }
-}
+.\scripts\verify_hashes.ps1 -OutputDir "outputs_latest"
 ```
 
-This should return `True` for all epochs if hashes match correctly.
+The script automatically discovers all `*_report.json` files in the output directory, reads CSV paths from the nested `files.*.path` fields (with fallback to top-level `file_hash_sha256` for backwards compatibility), computes SHA256 hashes, and compares them against the `files.*.sha256` values in the reports. It prints PASS/FAIL status grouped by file type (GXP hourly, Emissions, Upgrade menu).
+
+See [`scripts/verify_hashes.ps1`](../scripts/verify_hashes.ps1) for implementation details.
 

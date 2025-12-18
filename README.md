@@ -2,6 +2,10 @@
 
 Portable module for generating hourly GXP (Grid Exit Point) signals for the Edendale GXP (EDN0331) used by the Process-Heat-RDM framework. Generates a complete SignalsPack containing hourly headroom, tariff, and emissions intensity data across multiple epochs (decision years), with a frozen interface contract intended for downstream model repository consumption. Currently operates in synthetic mode using RETA-calibrated monthly means and diurnal profiles; planned future enhancements include measured hourly data ingestion and PyPSA-generated signals.
 
+## What is SignalsPack?
+
+SignalsPack is a standardised collection of time-series signals for electricity grid infrastructure modelling. For each GXP (Grid Exit Point), it provides hourly data on available capacity, baseline load, headroom (available capacity for new loads), time-of-use tariffs, and grid emissions intensity. These signals enable downstream models (e.g., Process-Heat-RDM) to assess electrification opportunities, capacity constraints, and economic feasibility across multiple decision epochs (years). The interface contract is frozen to ensure stable integration with downstream consumers.
+
 ## Outputs (SignalsPack)
 
 For each epoch (year), the generator produces:
@@ -28,8 +32,8 @@ See [`INTERFACE_CONTRACT.md`](INTERFACE_CONTRACT.md) for the authoritative froze
 
 ```powershell
 # Clone repository
-git clone <repo-url>
-cd "Edendale GXP"
+git clone https://github.com/Ahmad-Mahmoudi-coder/Edendale_GXP.git
+cd Edendale_GXP
 
 # Create virtual environment (recommended)
 python -m venv venv
@@ -43,7 +47,8 @@ pip install -r requirements.txt
 
 ```powershell
 # From repo root (works from any directory)
-python .\build_gxp_inputs.py --config .\config.toml --mode synthetic --output-dir .\outputs_latest --clean-output archive --epochs 2020,2025,2028,2035 --seed 42 --write-manifest --stop-on-error
+# Note: Epoch list must be quoted in PowerShell to prevent comma parsing issues
+python .\build_gxp_inputs.py --config .\config.toml --mode synthetic --output-dir .\outputs_latest --clean-output archive --epochs "2020,2025,2028,2035" --seed 42 --write-manifest --stop-on-error
 ```
 
 ### Validate Outputs
@@ -81,38 +86,15 @@ Each CSV file has a corresponding `*_report.json` containing:
 
 The `signals_manifest.toml` aggregates all epoch file paths and hashes.
 
-### Verify Hash Integrity (PowerShell)
+### Verify Hash Integrity
+
+Use the provided PowerShell script to verify hash integrity:
 
 ```powershell
-$epochs = @(2020, 2025, 2028, 2035)
-$outputDir = "outputs_latest"
-
-foreach ($year in $epochs) {
-    # GXP hourly CSV
-    $csvFile = Join-Path $outputDir "gxp_hourly_$year.csv"
-    $reportFile = Join-Path $outputDir "gxp_hourly_$year`_report.json"
-    
-    if (Test-Path $csvFile -And Test-Path $reportFile) {
-        $csvHash = (Get-FileHash -Path $csvFile -Algorithm SHA256).Hash.ToLower()
-        $report = Get-Content $reportFile | ConvertFrom-Json
-        $expectedHash = $report.files.gxp_hourly_csv.sha256.ToLower()
-        $match = ($csvHash -eq $expectedHash)
-        Write-Host "$year GXP hourly: $match (CSV: $($csvHash.Substring(0,16))..., Report: $($expectedHash.Substring(0,16))...)"
-    }
-    
-    # Emissions CSV
-    $emissionsCsv = Join-Path $outputDir "grid_emissions_intensity_$year.csv"
-    $emissionsReport = Join-Path $outputDir "grid_emissions_intensity_$year`_report.json"
-    
-    if (Test-Path $emissionsCsv -And Test-Path $emissionsReport) {
-        $emissionsHash = (Get-FileHash -Path $emissionsCsv -Algorithm SHA256).Hash.ToLower()
-        $emissionsReportObj = Get-Content $emissionsReport | ConvertFrom-Json
-        $expectedEmissionsHash = $emissionsReportObj.files.emissions_csv.sha256.ToLower()
-        $emissionsMatch = ($emissionsHash -eq $expectedEmissionsHash)
-        Write-Host "$year Emissions: $emissionsMatch (CSV: $($emissionsHash.Substring(0,16))..., Report: $($expectedEmissionsHash.Substring(0,16))...)"
-    }
-}
+.\scripts\verify_hashes.ps1 -OutputDir "outputs_latest"
 ```
+
+The script automatically discovers all `*_report.json` files in the output directory, reads CSV paths from the nested `files.*.path` fields, computes SHA256 hashes, and compares them against the `files.*.sha256` values in the reports. See [`scripts/verify_hashes.ps1`](scripts/verify_hashes.ps1) for implementation details.
 
 The `--validate-only` mode checks schema exactness, timestamp format, headroom calculation correctness, and hash integrity (manifest and report JSONs).
 
@@ -124,6 +106,33 @@ The `.gitignore` excludes:
 - `__pycache__/`, `*.pyc`, `*.log` — Python caches and logs
 
 **Archiving:** When `--clean-output archive` is used, all files in the output directory root are moved to `outputs_latest/_archive/YYYYMMDD_HHMMSS/` before generating new outputs. This preserves complete snapshots of previous runs (all interface contract artefacts: CSVs, reports, manifest, registry). Archive folders accumulate; manual cleanup may be required.
+
+## Release Checklist
+
+Before committing and pushing changes:
+
+1. **Generate outputs for all epochs:**
+   ```powershell
+   python .\build_gxp_inputs.py --config .\config.toml --mode synthetic --output-dir .\outputs_latest --clean-output archive --epochs "2020,2025,2028,2035" --seed 42 --write-manifest --stop-on-error
+   ```
+
+2. **Run validation:**
+   ```powershell
+   python .\build_gxp_inputs.py --output-dir .\outputs_latest --validate-only
+   ```
+
+3. **Verify hash integrity:**
+   ```powershell
+   .\scripts\verify_hashes.ps1 -OutputDir "outputs_latest"
+   ```
+
+4. **Confirm outputs are gitignored:**
+   - Verify `outputs_latest/`, `outputs_latest/_archive/`, and `test_output/` are excluded
+   - Check that no generated CSV, JSON, or TOML files are staged
+
+5. **Commit and push:**
+   - Only commit source code, config, documentation, and scripts
+   - Do not commit generated outputs or archives
 
 ## Roadmap / Next Steps
 
