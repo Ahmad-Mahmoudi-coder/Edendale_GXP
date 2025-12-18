@@ -1,0 +1,139 @@
+# Configuration file for GXP SignalsPack generation
+# NOTE: All file/directory paths in this config are relative to the repository root directory
+# unless they are absolute paths. The script automatically resolves relative paths against
+# the repo root (detected via .git directory or script location).
+
+[gxp]
+gxp_id = "EDN0331"
+power_factor = 0.95
+
+[capacity]
+# date ranges in MM-DD format, applied within the year
+# capacity values are in MVA; convert to MW via power_factor
+ranges = [
+    {start="01-01", end="05-15", capacity_mva=35.0},
+    {start="05-16", end="10-15", capacity_mva=36.0},
+    {start="10-16", end="12-31", capacity_mva=35.0},
+]
+
+[synthetic]
+# RETA-calibrated monthly means (Jan..Dec)
+# Target: Jan-Mar ~19-22 MW, Jun-Aug ~5-7 MW, Oct-Nov ~23-26 MW
+monthly_mean_import_mw = [21,21,20,19,16,7,6,7,14,24,25,23] # Jan..Dec (RETA-calibrated)
+diurnal = "two_peak" # flat | two_peak | business
+noise_sigma_mw = 0.4  # reduced from 0.5 to reduce high-end variability and tight hours
+seed = 42
+baseline_floor_mw = 3.5  # minimum baseline import (no zero-load hours) - MUST be 3.5
+reserve_margin_mw = 0.0  # default reserve margin (overridden by reserve_margin_by_epoch if present)
+max_binding_hours_frac = 0.005  # target ≤0.5% of hours with headroom==0 (legacy, may be overridden by tightness_targets)
+
+# Realism improvements
+rho_ar1 = 0.9  # AR(1) correlation coefficient for temporally correlated noise
+weekly_var_amp_mw = 0.4  # amplitude of weekly weather-like variation (reduced to minimize tight hours)
+weekend_multiplier = 0.97  # weekend load multiplier (applied before renormalization)
+smooth_clip = true  # use soft saturation instead of hard clipping
+smooth_k = 10.0  # steepness parameter for soft saturation (higher = sharper)
+
+[epoch_scaling]
+# multiplicative factor applied to baseline_import_MW after generation/aggregation
+2020 = 1.00
+2025 = 1.03
+2028 = 1.06
+2035 = 1.12
+
+[tariff_base]
+# base tariff per epoch (NZD per MWh)
+2020 = 120.0
+2025 = 130.0
+2028 = 140.0
+2035 = 160.0
+
+[tou]
+# Time-of-use tariff configuration
+timezone = "Pacific/Auckland"
+weekday_peak_hours = [7,8,9,17,18,19]        # inclusive hours
+weekday_shoulder_hours = [6,10,11,12,13,14,15,16,20,21]
+weekday_offpeak_hours = [0,1,2,3,4,5,22,23]
+weekend_all_offpeak = true
+
+# multipliers on base tariff for the epoch
+peak_multiplier = 1.35
+shoulder_multiplier = 1.10
+offpeak_multiplier = 0.85
+
+[emi_template]
+# EMI template configuration for diurnal shape calibration
+enabled = true
+# Path to Jan 2023 EMI data (Excel or CSV)
+# NOTE: All paths in this config are relative to the repository root directory unless absolute
+jan2023_path = "EMI_templete_Jan_2023.xlsx"  # Relative to repo root
+gxp_id = "EDN0331"  # GXP ID to match in template file (optional)
+time_resolution_minutes = 30  # Resolution of input data (30 for half-hourly)
+units = "kWh"  # Units in template file: "kWh" or "MW"
+require_success = false  # If true, fail if EMI template cannot be loaded (default: false, fallback to default diurnal)
+
+[incremental_sensitivity]
+# Incremental demand sensitivity diagnostics: deltas in MW
+# For each delta, compute hours where headroom < delta
+deltas_mw = [2, 5, 10, 15]
+
+[reserve_margin_by_epoch]
+# Per-epoch reserve margin (MW) - overrides reserve_margin_mw if present
+2020 = 0.5
+2025 = 0.5
+2028 = 0.25
+2035 = 0.0
+
+[tightness_targets]
+# Epoch-specific targets for headroom tightness (fractions are share of total hours)
+2020 = {pct_lt_1MW=0.001, pct_lt_2MW=0.010, pct_lt_5MW=0.050}
+2025 = {pct_lt_1MW=0.003, pct_lt_2MW=0.020, pct_lt_5MW=0.080}
+2028 = {pct_lt_1MW=0.005, pct_lt_2MW=0.030, pct_lt_5MW=0.120}
+2035 = {pct_lt_1MW=0.010, pct_lt_2MW=0.060, pct_lt_5MW=0.200}
+
+[tightness_tolerance]
+abs_tol = 0.005  # absolute tolerance on each target fraction
+
+[validation]
+# Validation behavior flags
+fail_on_tightness_miss = false  # If true, hard fail when tightness targets are missed (default: false, warn only)
+fail_on_emi = false  # If true, hard fail when EMI template validation fails (default: false, warn only)
+
+[time]
+# Time index and timezone policy
+timestamp_output_tz = "UTC"  # Output timestamp timezone: "UTC" (recommended) or "naive_local"
+tariff_clock_tz = "Pacific/Auckland"  # Timezone for TOU tariff computation
+dst_policy = "iana"  # DST handling: "iana" (recommended, uses IANA timezone rules) or "ignored"
+
+[gxp_upgrade_menu]
+# GXP upgrade menu configuration for SignalsPack PoC
+enabled = true
+deltas_mw = [0, 5, 15]
+# Lead time in years by delta (MW)
+lead_time_years_by_delta = {0=0, 5=0, 15=1}
+# CAPEX in NZD by delta (MW) - PoC placeholder values
+capex_nzd_by_delta = {0=0, 5=500000, 15=2000000}
+# Fixed O&M defaults
+fixed_om_nzd_per_year = 0
+lifetime_years = 30
+# Money semantics
+capex_currency = "NZD"
+capex_price_basis_year = 2025
+capex_real_or_nominal = "real"
+includes_gst = false
+
+[calibration]
+# Peak calibration to match RETA/TPR near-binding N-1 capacity story
+enabled = false
+# Target peak baseline import (MW) by epoch - matches near-binding capacity
+target_peak_MW_by_epoch = {2020=34.6, 2025=35.0, 2028=36.0, 2035=37.5}
+# Quantile to match (0.999 = 99.9th percentile, avoids noise artefacts)
+peak_match_quantile = 0.999
+
+[emissions_intensity]
+# Grid emissions intensity (constant per epoch for PoC)
+# Average grid emissions (kg CO2e per MWh)
+grid_co2e_kg_per_MWh_avg = 0.1
+# Marginal grid emissions (kg CO2e per MWh) - typically higher than average
+grid_co2e_kg_per_MWh_marginal = 0.8
+
